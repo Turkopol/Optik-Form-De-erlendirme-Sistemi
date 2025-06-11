@@ -23,12 +23,21 @@ if uploaded_file and answer_key_text:
         tmp_file.write(uploaded_file.read())
         tmp_path = tmp_file.name
 
+    # Görseli oku ve griye çevir
     image = cv2.imread(tmp_path)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edged = cv2.Canny(blurred, 75, 200)
 
-    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Görseli otomatik döndür (gerekiyorsa 90 derece döndürme ile test edilebilir)
+    if gray.shape[0] < gray.shape[1]:
+        gray = cv2.rotate(gray, cv2.ROTATE_90_CLOCKWISE)
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+
+    # Kontrast artırmak için adaptive threshold
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                   cv2.THRESH_BINARY_INV, 15, 10)
+
+    # Kenarları bul ve konturları çıkar
+    contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     bubble_contours = []
     for contour in contours:
@@ -50,14 +59,15 @@ if uploaded_file and answer_key_text:
         (cnts, boundingBoxes) = zip(*sorted(zip(cnts, boundingBoxes), key=lambda b: b[1][i], reverse=reverse))
         return cnts
 
+    # Tüm baloncukları sırala
     bubble_contours_sorted = sort_contours(bubble_contours, method="top-to-bottom")
 
+    # 4'erli gruplar halinde sırala (A-B-C-D)
     question_bubbles = []
     for i in range(0, len(bubble_contours_sorted), 4):
         cnts_group = sort_contours(bubble_contours_sorted[i:i+4], method="left-to-right")
         question_bubbles.append(cnts_group)
 
-    thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
     student_answers = []
     for q_group in question_bubbles:
         max_nonzero = 0
@@ -66,7 +76,7 @@ if uploaded_file and answer_key_text:
             mask = np.zeros(thresh.shape, dtype="uint8")
             cv2.drawContours(mask, [cnt], -1, 255, -1)
             total = cv2.countNonZero(cv2.bitwise_and(thresh, thresh, mask=mask))
-            if total > max_nonzero:
+            if total > max_nonzero and total > 120:  # minimum doluluk eşiği
                 max_nonzero = total
                 selected_option = idx
         letter = ['A', 'B', 'C', 'D'][selected_option] if selected_option is not None else "-"
